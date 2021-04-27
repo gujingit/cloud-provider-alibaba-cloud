@@ -25,6 +25,7 @@ import (
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -297,5 +298,73 @@ func TestUpdateLoadBalancerWhenStartLoadBalancerFailed(t *testing.T) {
 
 	if res.Status != slb.Running {
 		t.Fatalf("listener stop error.")
+	}
+}
+
+func TestLoadBalancerClient_UpdateDefaultServerGroup(t *testing.T) {
+	ctx := context.Background()
+	f := NewDefaultFrameWork(nil)
+	prid1 := nodeid(string(REGION), INSTANCEID)
+	prid2 := nodeid(string(REGION), INSTANCEID2)
+	f.WithService(
+		// initial service based on your definition
+		&v1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:   "default",
+				Name:        "service-test",
+				UID:         types.UID(serviceUIDExist),
+				Annotations: map[string]string{},
+			},
+			Spec: v1.ServiceSpec{
+				Type: "LoadBalancer",
+			},
+		},
+	).WithNodes(
+		// initial node based on your definition.
+		// backend of the created loadbalancer
+		[]*v1.Node{
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: prid1},
+				Spec:       v1.NodeSpec{ProviderID: prid1},
+			},
+			{
+				ObjectMeta: metav1.ObjectMeta{Name: prid2},
+				Spec:       v1.NodeSpec{ProviderID: prid2},
+			},
+		},
+	)
+
+	nodes := &EndpointWithENI{
+		LocalMode:      true,
+		BackendTypeENI: true,
+		Nodes:          f.Nodes,
+		Endpoints:      f.Endpoint,
+	}
+
+	exist, lb, err := f.LoadBalancer().FindLoadBalancer(ctx, f.SVC)
+	if err != nil {
+		t.Fatalf("fail to find LoadBalancer, error: %s", err.Error())
+	}
+	if !exist {
+		t.Fatalf("can not find LoadBalancer")
+	}
+	err = f.LoadBalancer().UpdateDefaultServerGroup(ctx, f.SVC, nodes, lb)
+	if err != nil {
+		t.Fatalf("update default server group error: %s", err.Error())
+	}
+
+	nlb, ok := LOADBALANCER.loadbalancer.Load(LOADBALANCER_ID)
+	if !ok {
+		t.Fatalf("cannot load slb")
+	}
+
+	ulb, ok := nlb.(slb.LoadBalancerType)
+	if !ok {
+		t.Fatalf("slb not LoadBalancerType, ulb type: %v", reflect.TypeOf(nlb))
+	}
+
+	if len(ulb.BackendServers.BackendServer) != 1 ||
+		ulb.BackendServers.BackendServer[0].ServerId != INSTANCEID {
+		t.Fatalf("error to update Default BackendServer")
 	}
 }
