@@ -26,6 +26,7 @@ import (
 	"k8s.io/klog"
 	"net"
 	"reflect"
+	"sync"
 	"time"
 
 	"strings"
@@ -58,6 +59,8 @@ const (
 
 	// Maximum number of retries of node status update.
 	updateNodeStatusMaxRetries int = 3
+
+	maxConcurrentRouteCreations int = 10
 )
 
 // Routes is an abstract, pluggable interface for advanced routing rules.
@@ -310,6 +313,7 @@ func (rc *RouteController) sync(ctx context.Context, table string, nodes []*v1.N
 			klog.Infof("Delete route %s %s from table %s SUCCESS.", route.Name, route.DestinationCIDR, table)
 		}
 	}
+
 	cached := RouteCacheMap(routes)
 	// try create desired routes
 	for _, node := range nodes {
@@ -328,11 +332,17 @@ func (rc *RouteController) sync(ctx context.Context, table string, nodes []*v1.N
 			klog.Errorf("Node %s has no Provider ID, skip it", node.Name)
 			continue
 		}
-		// ignore error return. Try it next time anyway.
-		err := rc.tryCreateRoute(ctx, table, node, cached)
-		if err != nil {
-			klog.Errorf("try create route error: %s", err.Error())
-		}
+		wg := sync.WaitGroup{}
+		rateLimiter := make(chan struct{}, maxConcurrentRouteCreations)
+		tick := time.NewTicker(500 * time.Millisecond)
+		wg.Add(1)
+		go func(ctx context.Context, table string, node *v1.Node, cache map[string]*cloudprovider.Route) {
+			defer wg.Done()
+			err := rc.tryCreateRoute(ctx, table, node, cached, rateLimiter, tick)
+			if err != nil {
+				klog.Errorf("try create route error: %s", err.Error())
+			}
+		}(ctx, table, node, cached)
 	}
 	return nil
 }
@@ -355,6 +365,8 @@ func (rc *RouteController) tryCreateRoute(
 	table string,
 	node *v1.Node,
 	cache map[string]*cloudprovider.Route,
+	rateLimiter chan struct{},
+	ticker *time.Ticker,
 ) error {
 
 	_, condition := helpers.GetNodeCondition(&node.Status, v1.NodeReady)
@@ -392,9 +404,11 @@ func (rc *RouteController) tryCreateRoute(
 		}
 		var lasterr error
 		err := wait.ExponentialBackoff(backoff, func() (bool, error) {
-
+			rateLimiter <- struct{}{}
+			<-ticker.C
 			klog.Infof("Creating route for node %s %s with hint %s", node.Name, route.DestinationCIDR, node.Name)
 			err := rc.routes.CreateRoute(ctx, rc.clusterName, node.Name, table, route)
+			<-rateLimiter
 			if err != nil {
 				lasterr = err
 				if strings.Contains(err.Error(), "not found") {

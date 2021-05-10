@@ -18,7 +18,7 @@ func (b *BaseClient) SetCoreClient(core kubernetes.Interface) { b.core = core }
 func NewContextedClientSLB(key, secret, region string) *ContextedClientSLB {
 	return &ContextedClientSLB{
 		BaseClient: BaseClient{},
-		slb:        slb.NewSLBClientWithSecurityToken4RegionalDomain(key, secret, "", common.Region(region)),
+		slb:        slb.NewSLBClientWithSecurityToken(key, secret, "", common.Region(region)),
 	}
 }
 
@@ -274,7 +274,7 @@ func (c *ContextedClientSLB) RemoveVServerGroupBackendServers(
 func NewContextedClientINS(key, secret, region string) *ContextedClientINS {
 	return &ContextedClientINS{
 		BaseClient: BaseClient{},
-		ecs:        ecs.NewECSClientWithSecurityToken4RegionalDomain(key, secret, "", common.Region(region)),
+		ecs:        ecs.NewECSClientWithSecurityToken(key, secret, "", common.Region(region)),
 	}
 }
 
@@ -379,7 +379,7 @@ func (c *ContextedClientPVTZ) SetZoneRecordStatus(ctx context.Context, args *pvt
 func NewContextedClientRoute(key, secret, region string) *ContextedClientRoute {
 	return &ContextedClientRoute{
 		BaseClient: BaseClient{},
-		ecs:        ecs.NewVPCClientWithSecurityToken4RegionalDomain(key, secret, "", common.Region(region)),
+		ecs:        ecs.NewVPCClientWithSecurityToken(key, secret, "", common.Region(region)),
 	}
 }
 
