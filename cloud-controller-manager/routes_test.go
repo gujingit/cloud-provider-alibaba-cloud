@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func NewMockRouteMgr(tables string) (*ClientMgr, error) {
@@ -137,3 +138,30 @@ func TestSep(t *testing.T) {
 //
 //	fmt.Print(PrettyJson(vpc))
 //}
+
+func TestWaitCreate(t *testing.T) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	done := make(chan bool)
+
+	for i := 0; i < 10; i++ {
+		printTime(i, ticker, done)
+	}
+
+	time.Sleep(1600 * time.Millisecond)
+	ticker.Stop()
+	done <- true
+	fmt.Println("Ticker stopped")
+}
+
+func printTime(i int, ticker *time.Ticker, done chan bool) {
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case t := <-ticker.C:
+				fmt.Printf("%d Tick at %s\n", i, t)
+			}
+		}
+	}()
+}

@@ -316,6 +316,11 @@ func (rc *RouteController) sync(ctx context.Context, table string, nodes []*v1.N
 
 	cached := RouteCacheMap(routes)
 	// try create desired routes
+	// create route every 2 second to avoid the vpc conflict error
+	tick := time.NewTicker(2 * time.Second)
+	wg := sync.WaitGroup{}
+	rateLimiter := make(chan struct{}, maxConcurrentRouteCreations)
+
 	for _, node := range nodes {
 
 		if utils.IsExcludedNode(node) {
@@ -332,9 +337,6 @@ func (rc *RouteController) sync(ctx context.Context, table string, nodes []*v1.N
 			klog.Errorf("Node %s has no Provider ID, skip it", node.Name)
 			continue
 		}
-		wg := sync.WaitGroup{}
-		rateLimiter := make(chan struct{}, maxConcurrentRouteCreations)
-		tick := time.NewTicker(500 * time.Millisecond)
 		wg.Add(1)
 		go func(ctx context.Context, table string, node *v1.Node, cache map[string]*cloudprovider.Route) {
 			defer wg.Done()
@@ -344,6 +346,9 @@ func (rc *RouteController) sync(ctx context.Context, table string, nodes []*v1.N
 			}
 		}(ctx, table, node, cached)
 	}
+	wg.Wait()
+	tick.Stop()
+	close(rateLimiter)
 	return nil
 }
 
